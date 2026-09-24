@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>手绘标题</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0c0c0c; --panel:#161616; --line:#2c2c2c; --text:#f4f4f4; --muted:#9a9a9a; --yellow:#fac834; --ink:#1a1400; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:16px/1.5 "PingFang SC","Noto Sans SC",sans-serif; }
+    main { display:grid; grid-template-columns:minmax(280px,420px) 1fr; gap:28px; max-width:1180px; margin:0 auto; padding:32px 24px 48px; }
+    h1 { margin:0 0 8px; font-size:28px; }
+    h2 { margin:0; font-size:18px; }
+    .lead, .hint { color:var(--muted); }
+    .lead { margin:0 0 22px; }
+    label { display:flex; flex-direction:column; gap:6px; font-weight:600; }
+    textarea, input[type="text"], .split-edit input {
+      width:100%; border:1px solid var(--line); background:var(--panel); color:var(--text);
+      border-radius:10px; padding:10px 12px; font:inherit;
+    }
+    textarea { min-height:96px; resize:vertical; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+    button { border:0; border-radius:999px; padding:11px 18px; font:inherit; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .primary { background:var(--yellow); color:var(--ink); }
+    .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+    .error { min-height:1.4em; margin:0; color:#ff8d7a; }
+    .batch { margin-top:28px; display:flex; flex-direction:column; gap:10px; }
+    .stage {
+      background-color:#d5d5d5;
+      background-image:linear-gradient(45deg,#c2c2c2 25%,transparent 25%),linear-gradient(-45deg,#c2c2c2 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c2c2c2 75%),linear-gradient(-45deg,transparent 75%,#c2c2c2 75%);
+      background-size:28px 28px; background-position:0 0,0 14px,14px -14px,-14px 0;
+      border-radius:16px; min-height:280px; display:grid; place-items:center; overflow:hidden; border:1px solid var(--line);
+    }
+    .stage img { width:100%; height:auto; display:block; }
+    .stage img[hidden] { display:none; }
+    .placeholder { color:#555; padding:24px; text-align:center; }
+    .full { grid-column:1 / -1; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { color:var(--muted); }
+    .split-edit { display:flex; flex-direction:column; gap:6px; min-width:220px; }
+    .split-edit label { font-size:12px; color:var(--muted); }
+    pre { margin:12px 0 0; max-height:240px; overflow:auto; padding:12px; background:#0c0c0c; border-radius:10px; font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre; }
+    @media (max-width:800px) { main { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>手绘标题</h1>
+      <p class="lead">输入一句话，或上传含「景点名称」「景点简介」的 xlsx。名称是文件名，简介是标题文案。生成透明 PNG 和可交给研发的 HTML。</p>
+      <form id="form">
+        <label>标题文本<textarea id="text">松树头山上的照片都是半山花海拍的，不用爬到山顶</textarea></label>
+        <div class="actions">
+          <button class="primary" id="submit" type="submit">生成</button>
+          <button class="ghost" id="downloadPng" type="button" hidden>下载透明 PNG</button>
+          <button class="ghost" id="downloadHtml" type="button" hidden>下载 HTML</button>
+        </div>
+        <p class="error" id="error"></p>
+      </form>
+      <section class="batch">
+        <h2>批量生成</h2>
+        <label>景点表格<span class="hint">选择后自动识别，拆分结果可以改，改完再确认生成。</span>
+          <input id="xlsx" type="file" accept=".xlsx">
+        </label>
+        <p class="hint" id="batchSummary"></p>
+        <button class="primary" id="batchDownload" type="button" disabled>确认生成</button>
+        <p class="error" id="batchError"></p>
+      </section>
+    </section>
+    <section class="stage" id="stage">
+      <p class="placeholder" id="placeholder">点「生成」后，标题会出现在这里。</p>
+      <img id="preview" alt="生成的标题图" hidden>
+    </section>
+    <section class="full" id="batchTable" hidden>
+      <table>
+        <thead><tr><th>景点名称</th><th>景点简介</th><th>标题拆分（可修改，黄字用【】）</th></tr></thead>
+        <tbody id="batchBody"></tbody>
+      </table>
+    </section>
+    <section class="full" id="codePanel" hidden>
+      <h2>交给研发的 HTML</h2>
+      <p class="hint">和图片放在一起时，把 HYYanKaiW.ttf 放在 HTML 同目录。</p>
+      <pre id="code"></pre>
+    </section>
+  </main>
+  <script src="jszip.min.js"></script>
+  <script>
+    const MARKERS = ["都是","就是","其实是","竟然是","居然是","原来是","才是","而是","只是","还是","但是","可是","不过","结果","其实","竟然","居然","原来","不是","没想到"];
+    const FONT = "HYYanKaiW";
+    let pngUrl = "";
+    let htmlSource = "";
+    let fontReady = null;
+
+    function ensureFont() {
+      if (!fontReady) {
+        const face = new FontFace(FONT, "url(./HYYanKaiW.ttf)");
+        fontReady = face.load().then((loaded) => { document.fonts.add(loaded); return loaded; });
+      }
+      return fontReady;
+    }
+
+    function bang(text) {
+      text = text.trim();
+      if (!text) return text;
+      if ("！!?？".includes(text.slice(-1))) return text;
+      if ("。.".includes(text.slice(-1))) return text.slice(0, -1) + "！";
+      return text + "！";
+    }
+
+    function structureSentence(text) {
+      const raw = text.replace(/\s+/g, "").trim();
+      if (!raw) throw new Error("请输入一句话");
+      if ((raw.match(/【/g) || []).length !== (raw.match(/】/g) || []).length) throw new Error("高亮括号不成对");
+      let parts = raw.split(/[，,。！!？?；;\n]+/).filter(Boolean);
+      if (!parts.length) throw new Error("请输入一句话");
+      let badge = "";
+      if (parts.length >= 2 && parts[parts.length - 1].length <= 16) {
+        badge = bang(parts.pop());
+      }
+      let line1, line2;
+      if (parts.length >= 2) { line1 = parts[0]; line2 = parts.slice(1).join(""); }
+      else { [line1, line2] = splitBody(parts[0]); }
+      if (!line2) { line2 = line1; line1 = ""; }
+      return [line1, bang(highlight(line2)), badge];
+    }
+
+    function splitBody(body) {
+      const found = MARKERS.map((marker) => [body.indexOf(marker), marker]).filter(([index]) => index >= 4);
+      if (found.length) {
+        const idx = Math.min(...found.map(([index]) => index));
+        return [body.slice(0, idx), body.slice(idx)];
+      }
+      if (body.length <= 8) return ["", body];
+      let cut = Math.max(4, Math.min(8, Math.round(body.length * 0.4)));
+      if (body.length - cut < 4) cut = body.length - 4;
+      return [body.slice(0, cut), body.slice(cut)];
+    }
+
+    function highlight(line) {
+      if (line.includes("【")) return line;
+      const match = line.match(/(都是|就是|才是|而是|只是|还是|不是|原来是|竟然是|居然是)(.{2,6}?)(拍的|做的|写的|看的|买的|吃的|的)/);
+      if (match) {
+        const at = line.indexOf(match[2], match.index + match[1].length);
+        return line.slice(0, at) + "【" + match[2] + "】" + line.slice(at + match[2].length);
+      }
+      let rest = line;
+      for (const marker of MARKERS) if (rest.startsWith(marker)) { rest = rest.slice(marker.length); break; }
+      rest = rest.replace(/(拍的|的|了|吧|啊|呀)$/, "");
+      if (rest.length < 2) return line;
+      const word = rest.length > 4 ? rest.slice(0, 4) : rest;
+      const idx = line.indexOf(word);
+      if (idx < 0) return line;
+      return line.slice(0, idx) + "【" + word + "】" + line.slice(idx + word.length);
+    }
+
+    function runs(text) {
+      if ((text.match(/【/g) || []).length !== (text.match(/】/g) || []).length) throw new Error("高亮括号不成对");
+      const parts = text.split(/【(.*?)】/);
+      return parts.map((part, i) => [part, i % 2 === 1]).filter(([part]) => part);
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
+    }
+
+    function runsHtml(text) {
+      return runs(text).map(([part, hi]) => hi ? `<span class="case-title__hl">${escapeHtml(part)}</span>` : escapeHtml(part)).join("");
+    }
+
+    function fontPx(line1, line2) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      let lo = 48, hi = 280, best = 48;
+      const plain = (text) => text.replace(/[【】]/g, "");
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        ctx.font = `${mid}px ${FONT}`;
+        const width = Math.max(measure(ctx, plain(line1), mid), measure(ctx, plain(line2), mid));
+        if (width <= 1920 * 0.72) { best = mid; lo = mid + 1; } else hi = mid - 1;
+      }
+      return best;
+    }
+
+    function measure(ctx, text, size) {
+      const tracking = size * -0.16;
+      let width = 0;
+      for (const ch of text) width += ctx.measureText(ch).width + tracking;
+      return Math.max(0, width - tracking);
+    }
+
+    function buildHtml(line1, line2, badge, fontUrl) {
+      line1 = line1.trim(); line2 = line2.trim(); badge = badge.trim();
+      const sources = [line1, line2].filter(Boolean);
+      if (!sources.length) throw new Error("至少要有一行文案");
+      sources.forEach(runs);
+      const size = fontPx(line1, line2);
+      const lines = sources.map((source) => `        <p class="case-title__line">${runsHtml(source)}</p>`).join("\n");
+      const arrow = badge && sources.some((item) => item.includes("【"));
+      const nudge = "-0.08";
+      const foot = badge ? `
+      <div class="case-title__foot">
+        <span class="case-title__badge"><span class="case-title__badge-text" style="transform:translateY(${nudge}em)">${escapeHtml(badge)}</span></span>${arrow ? arrowSvg() : ""}
+      </div>` : "";
+      return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(sources.join("") + badge)}</title>
+  <style>
+    @font-face { font-family:"HYYanKaiW"; src:url("${fontUrl}") format("truetype"); font-display:block; }
+    html, body { margin:0; background:transparent; }
+    .case-title { position:relative; width:1920px; height:1080px; overflow:hidden; background:transparent; color:#fff; font-family:"HYYanKaiW","KaiTi",serif; font-size:${size}px; line-height:1; letter-spacing:-0.16em; }
+    .case-title__group { position:absolute; left:25%; top:50%; width:max-content; transform:translate(-25%,-50%); }
+    .case-title__lines { transform:rotate(-3deg); transform-origin:center center; white-space:nowrap; text-shadow:0.035em 0.035em 0.12em rgba(0,0,0,.3); }
+    .case-title__line { margin:0; line-height:1.05; }
+    .case-title__line + .case-title__line { margin-top:0.16em; }
+    .case-title__hl { position:relative; color:#fac834; }
+    .case-title__hl::after { content:""; position:absolute; left:4%; width:124%; bottom:-0.2em; height:0.11em; background:#fac834; border-radius:999px; box-shadow:0 0 0 0.02em #000; }
+    .case-title__foot { position:relative; width:max-content; margin-top:0.46em; margin-left:0.04em; }
+    .case-title__badge { display:inline-flex; align-items:center; justify-content:center; padding:0.16em 0.32em; color:#000; font-size:0.66em; line-height:1; letter-spacing:-0.16em; text-shadow:none; background:#fac834; border:calc(0.04em / 0.66) solid #000; border-radius:0.22em; box-shadow:0 0 0 calc(0.046em / 0.66) #fff; transform:rotate(7deg); }
+    .case-title__badge-text { display:inline-block; }
+    .case-title__arrow { position:absolute; width:max(90px,0.58em); height:auto; left:calc(100% - 0.62 * max(90px,0.58em)); top:calc(-0.22 * max(90px,0.58em)); overflow:visible; }
+  </style>
+</head>
+<body>
+  <div class="case-title"><div class="case-title__group"><div class="case-title__lines">
+${lines}
+      </div>${foot}
+    </div></div>
+</body>
+</html>`;
+    }
+
+    function arrowSvg() {
+      return `<svg class="case-title__arrow" viewBox="0 0 100 100" fill="none" aria-hidden="true"><path d="M48 78 C30 70 28 48 42 40 C58 30 70 48 58 58 C48 66 58 74 66 64" stroke="#fff" stroke-width="11" stroke-linecap="round"/><path d="M48 78 C30 70 28 48 42 40 C58 30 70 48 58 58 C48 66 58 74 66 64" stroke="#000" stroke-width="6" stroke-linecap="round"/><polygon points="78,58 62,52 66,66" fill="#fff"/><polygon points="74,58 64,54 66,64" fill="#000"/></svg>`;
+    }
+
+    function drawText(ctx, text, x, y, size) {
+      const tracking = size * -0.16;
+      let cursor = x;
+      for (const [part, hi] of runs(text)) {
+        ctx.fillStyle = hi ? "#fac834" : "#ffffff";
+        for (const ch of part) {
+          ctx.fillText(ch, cursor, y);
+          cursor += ctx.measureText(ch).width + tracking;
+        }
+      }
+      return cursor;
+    }
+
+    async function renderPng(line1, line2, badge) {
+      await ensureFont();
+      const size = fontPx(line1, line2);
+      const canvas = document.createElement("canvas");
+      canvas.width = 1920; canvas.height = 1080;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, 1920, 1080);
+      ctx.font = `${size}px ${FONT}`;
+      ctx.textBaseline = "top";
+      ctx.shadowColor = "rgba(0,0,0,0.3)";
+      ctx.shadowBlur = size * 0.12;
+      ctx.shadowOffsetX = size * 0.035;
+      ctx.shadowOffsetY = size * 0.035;
+      const lines = [line1, line2].filter(Boolean);
+      const gap = size * 0.16;
+      const lineH = size * 1.05;
+      const blockH = lines.length * lineH + (lines.length - 1) * gap;
+      const widths = lines.map((line) => measure(ctx, line.replace(/[【】]/g, ""), size));
+      const blockW = Math.max(...widths, 1);
+      const left = (1920 - blockW) / 4;
+      const top = (1080 - blockH - (badge ? size * 0.9 : 0)) / 2;
+      ctx.save();
+      ctx.translate(left + blockW / 2, top + blockH / 2);
+      ctx.rotate(-3 * Math.PI / 180);
+      ctx.translate(-blockW / 2, -blockH / 2);
+      lines.forEach((line, index) => {
+        const y = index * (lineH + gap);
+        drawText(ctx, line, 0, y, size);
+        const hi = line.match(/【(.*?)】/);
+        if (hi) {
+          const before = line.slice(0, line.indexOf("【")).replace(/[【】]/g, "");
+          const word = hi[1];
+          const x0 = measure(ctx, before, size);
+          const w = measure(ctx, word, size);
+          ctx.shadowColor = "transparent";
+          ctx.fillStyle = "#fac834";
+          const uy = y + size * 0.92;
+          ctx.fillRect(x0 + w * 0.04, uy, w * 1.24, size * 0.11);
+          ctx.shadowColor = "rgba(0,0,0,0.3)";
+        }
+      });
+      ctx.restore();
+      if (badge) {
+        ctx.save();
+        ctx.shadowColor = "transparent";
+        const bsize = size * 0.66;
+        ctx.font = `${bsize}px ${FONT}`;
+        const bw = measure(ctx, badge, bsize) + bsize * 0.64;
+        const bh = bsize * 1.35;
+        const bx = left;
+        const by = top + blockH + size * 0.2;
+        ctx.translate(bx + bw / 2, by + bh / 2);
+        ctx.rotate(7 * Math.PI / 180);
+        ctx.fillStyle = "#fff";
+        roundRect(ctx, -bw / 2 - 8, -bh / 2 - 8, bw + 16, bh + 16, 18);
+        ctx.fillStyle = "#000";
+        roundRect(ctx, -bw / 2 - 4, -bh / 2 - 4, bw + 8, bh + 8, 16);
+        ctx.fillStyle = "#fac834";
+        roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 14);
+        ctx.fillStyle = "#000";
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "center";
+        ctx.fillText(badge, 0, 2);
+        ctx.restore();
+      }
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      return blob;
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, r);
+      ctx.fill();
+    }
+
+    function fileStem(name, used) {
+      let stem = name.replace(/[\\/:*?"<>|\s]+/g, "").replace(/^\.+|\.+$/g, "").slice(0, 40) || "未命名";
+      let candidate = stem, n = 2;
+      while (used.has(candidate)) candidate = `${stem}-${n++}`;
+      used.add(candidate);
+      return candidate;
+    }
+
+    async function readXlsx(file) {
+      const zip = await JSZip.loadAsync(await file.arrayBuffer());
+      const sharedXml = zip.file("xl/sharedStrings.xml");
+      const shared = [];
+      if (sharedXml) {
+        const doc = new DOMParser().parseFromString(await sharedXml.async("text"), "text/xml");
+        doc.querySelectorAll("si").forEach((node) => shared.push(node.textContent || ""));
+      }
+      const sheetName = Object.keys(zip.files).find((name) => name.startsWith("xl/worksheets/sheet"));
+      if (!sheetName) throw new Error("表格里没有工作表");
+      const sheet = new DOMParser().parseFromString(await zip.file(sheetName).async("text"), "text/xml");
+      const rows = [...sheet.querySelectorAll("sheetData row")].map((row) => {
+        const cells = {};
+        [...row.children].forEach((cell) => {
+          const ref = cell.getAttribute("r") || "A";
+          const col = ref.replace(/[0-9]/g, "").split("").reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+          const kind = cell.getAttribute("t");
+          const value = cell.querySelector("v");
+          let text = "";
+          if (kind === "inlineStr") text = cell.textContent || "";
+          else if (value) text = kind === "s" ? (shared[Number(value.textContent)] || "") : value.textContent;
+          cells[col] = (text || "").trim();
+        });
+        const width = Math.max(-1, ...Object.keys(cells).map(Number)) + 1;
+        return Array.from({ length: width }, (_, i) => cells[i] || "");
+      });
+      const nameKeys = ["景点名称", "景点名", "名称"];
+      const introKeys = ["景点简介", "简介", "介绍", "文案"];
+      let header = -1, nameAt = -1, introAt = -1;
+      rows.slice(0, 8).forEach((candidate, index) => {
+        if (header >= 0) return;
+        const norm = candidate.map((cell) => cell.replace(/\s+/g, ""));
+        const n = nameKeys.map((key) => norm.indexOf(key)).find((i) => i >= 0);
+        const t = introKeys.map((key) => norm.indexOf(key)).find((i) => i >= 0);
+        if (n >= 0 && t >= 0) { header = index; nameAt = n; introAt = t; }
+      });
+      if (header < 0) throw new Error("没有找到「景点名称」和「景点简介」");
+      return rows.slice(header + 1).map((cells) => ({ name: cells[nameAt] || "", text: cells[introAt] || "" })).filter((row) => row.name || row.text);
+    }
+
+    document.querySelector("#form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = document.querySelector("#error");
+      error.textContent = "";
+      try {
+        const [line1, line2, badge] = structureSentence(document.querySelector("#text").value);
+        htmlSource = buildHtml(line1, line2, badge, "./HYYanKaiW.ttf");
+        const blob = await renderPng(line1, line2, badge);
+        if (pngUrl) URL.revokeObjectURL(pngUrl);
+        pngUrl = URL.createObjectURL(blob);
+        document.querySelector("#preview").src = pngUrl;
+        document.querySelector("#preview").hidden = false;
+        document.querySelector("#placeholder").hidden = true;
+        document.querySelector("#code").textContent = htmlSource;
+        document.querySelector("#codePanel").hidden = false;
+        document.querySelector("#downloadPng").hidden = false;
+        document.querySelector("#downloadHtml").hidden = false;
+      } catch (err) {
+        error.textContent = err.message;
+      }
+    });
+
+    function save(blob, name) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = name; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
+    document.querySelector("#downloadPng").addEventListener("click", () => { if (pngUrl) save(pngUrl, "标题.png"); });
+    document.querySelector("#downloadHtml").addEventListener("click", () => {
+      if (htmlSource) save(new Blob([htmlSource], { type: "text/html" }), "标题.html");
+    });
+
+    document.querySelector("#xlsx").addEventListener("change", async () => {
+      const batchError = document.querySelector("#batchError");
+      const body = document.querySelector("#batchBody");
+      batchError.textContent = "";
+      body.innerHTML = "";
+      const file = document.querySelector("#xlsx").files[0];
+      if (!file) return;
+      try {
+        const rows = await readXlsx(file);
+        body.innerHTML = rows.map((row) => {
+          let line1 = "", line2 = "", badge = "", err = "";
+          try { [line1, line2, badge] = structureSentence(row.text); }
+          catch (e) { err = e.message; }
+          return `<tr data-name="${escapeHtml(row.name)}"><td>${escapeHtml(row.name)}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</td><td>${escapeHtml(row.text)}</td><td><div class="split-edit"><label>第一行<input data-field="line1" value="${escapeHtml(line1)}"></label><label>第二行<input data-field="line2" value="${escapeHtml(line2)}"></label><label>角标<input data-field="badge" value="${escapeHtml(badge)}"></label></div></td></tr>`;
+        }).join("");
+        document.querySelector("#batchSummary").textContent = `识别到 ${rows.length} 条。可以修改拆分，再点确认生成。压缩包里每个景点有 PNG 和 HTML，根目录还有全部标题.html。`;
+        document.querySelector("#batchTable").hidden = !rows.length;
+        document.querySelector("#batchDownload").disabled = !rows.length;
+      } catch (err) {
+        batchError.textContent = err.message;
+      }
+    });
+
+    document.querySelector("#batchDownload").addEventListener("click", async () => {
+      const button = document.querySelector("#batchDownload");
+      const batchError = document.querySelector("#batchError");
+      const items = [...document.querySelectorAll("#batchBody tr")].map((row) => ({
+        name: row.dataset.name || "",
+        line1: row.querySelector("[data-field=line1]").value.trim(),
+        line2: row.querySelector("[data-field=line2]").value.trim(),
+        badge: row.querySelector("[data-field=badge]").value.trim(),
+      }));
+      button.disabled = true;
+      button.textContent = "正在生成…";
+      batchError.textContent = "";
+      try {
+        const zip = new JSZip();
+        const font = await (await fetch("./HYYanKaiW.ttf")).arrayBuffer();
+        zip.file("HYYanKaiW.ttf", font);
+        const used = new Set();
+        const blocks = [];
+        for (const item of items) {
+          if (!item.line1 && !item.line2) continue;
+          const stem = fileStem(item.name || "未命名", used);
+          const page = buildHtml(item.line1, item.line2, item.badge, "../HYYanKaiW.ttf");
+          const png = await renderPng(item.line1, item.line2, item.badge);
+          zip.file(`${stem}/${stem}.png`, png);
+          zip.file(`${stem}/${stem}.html`, page);
+          blocks.push(`<section><h2 style="margin:24px;font:16px sans-serif">${escapeHtml(item.name)}</h2>${page.match(/<div class="case-title">[\s\S]*<\/div>\s*<\/div>\s*<\/div>/)[0]}</section>`);
+        }
+        if (!blocks.length) throw new Error("至少要有一行标题拆分");
+        const index = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>全部标题</title><style>@font-face{font-family:"HYYanKaiW";src:url("./HYYanKaiW.ttf") format("truetype");}body{margin:0;background:#111}</style></head><body>${blocks.join("\n")}</body></html>`;
+        zip.file("全部标题.html", index);
+        save(await zip.generateAsync({ type: "blob" }), "手绘标题.zip");
+      } catch (err) {
+        batchError.textContent = err.message;
+      } finally {
+        button.disabled = false;
+        button.textContent = "确认生成";
+      }
+    });
+  </script>
+</body>
+</html>
