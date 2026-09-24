@@ -8,11 +8,16 @@
     :root { color-scheme: dark; --bg:#0c0c0c; --panel:#161616; --line:#2c2c2c; --text:#f4f4f4; --muted:#9a9a9a; --yellow:#fac834; --ink:#1a1400; }
     * { box-sizing: border-box; }
     body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:16px/1.5 "PingFang SC","Noto Sans SC",sans-serif; }
-    main { display:grid; grid-template-columns:minmax(280px,420px) 1fr; gap:28px; max-width:1180px; margin:0 auto; padding:32px 24px 48px; }
-    h1 { margin:0 0 8px; font-size:28px; }
-    h2 { margin:0; font-size:18px; }
+    main { max-width:1100px; margin:0 auto; padding:28px 20px 56px; display:flex; flex-direction:column; gap:28px; }
+    h1 { margin:0 0 8px; font-size:26px; }
+    h2 { margin:0; font-size:16px; }
     .lead, .hint { color:var(--muted); }
-    .lead { margin:0 0 22px; }
+    .lead { margin:0 0 16px; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:22px; }
+    .outputs { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px; }
+    .outputs article { min-width:0; }
+    .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+    .code-block { grid-column:1 / -1; }
     label { display:flex; flex-direction:column; gap:6px; font-weight:600; }
     textarea, input[type="text"], .split-edit input {
       width:100%; border:1px solid var(--line); background:var(--panel); color:var(--text);
@@ -25,7 +30,7 @@
     .primary { background:var(--yellow); color:var(--ink); }
     .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
     .error { min-height:1.4em; margin:0; color:#ff8d7a; }
-    .batch { margin-top:28px; display:flex; flex-direction:column; gap:10px; }
+    .batch { display:flex; flex-direction:column; gap:10px; }
     .stage {
       background-color:#d5d5d5;
       background-image:linear-gradient(45deg,#c2c2c2 25%,transparent 25%),linear-gradient(-45deg,#c2c2c2 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c2c2c2 75%),linear-gradient(-45deg,transparent 75%,#c2c2c2 75%);
@@ -35,54 +40,78 @@
     .stage img { width:100%; height:auto; display:block; }
     .stage img[hidden] { display:none; }
     .placeholder { color:#555; padding:24px; text-align:center; }
-    .full { grid-column:1 / -1; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; }
+    .frame-clip { width:100%; overflow:hidden; position:relative; background:transparent; }
+    .frame-clip iframe { width:1920px; height:1080px; border:0; position:absolute; left:0; top:0; transform-origin:0 0; background:transparent; }
+    .full { margin-top:8px; }
     table { width:100%; border-collapse:collapse; font-size:14px; }
     th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
     th { color:var(--muted); }
     .split-edit { display:flex; flex-direction:column; gap:6px; min-width:220px; }
     .split-edit label { font-size:12px; color:var(--muted); }
     pre { margin:12px 0 0; max-height:240px; overflow:auto; padding:12px; background:#0c0c0c; border-radius:10px; font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre; }
-    @media (max-width:800px) { main { grid-template-columns:1fr; } }
+    @media (max-width:800px) { .outputs { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
   <main>
-    <section>
-      <h1>手绘标题</h1>
-      <p class="lead">输入一句话，或上传含「景点名称」「景点简介」的 xlsx。名称是文件名，简介是标题文案。生成透明 PNG 和可交给研发的 HTML。</p>
+    <section class="panel">
+      <h1>1、手绘标题</h1>
+      <p class="lead">输入一句话。生成后可以分别查看图片、HTML 效果和 HTML 代码，并单独下载。</p>
       <form id="form">
         <label>标题文本<textarea id="text">松树头山上的照片都是半山花海拍的，不用爬到山顶</textarea></label>
         <div class="actions">
           <button class="primary" id="submit" type="submit">生成</button>
-          <button class="ghost" id="downloadPng" type="button" hidden>下载透明 PNG</button>
-          <button class="ghost" id="downloadHtml" type="button" hidden>下载 HTML</button>
         </div>
         <p class="error" id="error"></p>
       </form>
-      <section class="batch">
-        <h2>批量生成</h2>
-        <label>景点表格<span class="hint">选择后自动识别，拆分结果可以改，改完再确认生成。</span>
+      <div class="outputs" id="outputs" hidden>
+        <article>
+          <div class="card-head">
+            <h2>图片</h2>
+            <button class="ghost" id="downloadPng" type="button">下载 PNG</button>
+          </div>
+          <div class="stage">
+            <img id="preview" alt="生成的标题图">
+          </div>
+        </article>
+        <article>
+          <div class="card-head">
+            <h2>HTML 预览</h2>
+            <button class="ghost" id="downloadHtml" type="button">下载 HTML</button>
+          </div>
+          <div class="stage frame-clip" id="frameClip">
+            <iframe id="htmlFrame" title="HTML 标题预览"></iframe>
+          </div>
+        </article>
+        <article class="code-block">
+          <div class="card-head">
+            <h2>HTML 代码</h2>
+            <button class="ghost" id="downloadHtmlCode" type="button">下载这份 HTML</button>
+          </div>
+          <p class="hint">交给研发时，把 HYYanKaiW.ttf 和 HTML 放在同一目录。</p>
+          <pre id="code"></pre>
+        </article>
+      </div>
+    </section>
+    <section class="panel">
+      <h1>2、批量生成</h1>
+      <p class="lead">上传含「景点名称」和「景点简介」的 xlsx。名称是文件名，简介是标题文案。拆分结果可以改，改完再确认生成。</p>
+      <div class="batch">
+        <label>景点表格
           <input id="xlsx" type="file" accept=".xlsx">
         </label>
         <p class="hint" id="batchSummary"></p>
-        <button class="primary" id="batchDownload" type="button" disabled>确认生成</button>
+        <div class="actions">
+          <button class="primary" id="batchDownload" type="button" disabled>确认生成</button>
+        </div>
         <p class="error" id="batchError"></p>
-      </section>
-    </section>
-    <section class="stage" id="stage">
-      <p class="placeholder" id="placeholder">点「生成」后，标题会出现在这里。</p>
-      <img id="preview" alt="生成的标题图" hidden>
-    </section>
-    <section class="full" id="batchTable" hidden>
-      <table>
-        <thead><tr><th>景点名称</th><th>景点简介</th><th>标题拆分（可修改，黄字用【】）</th></tr></thead>
-        <tbody id="batchBody"></tbody>
-      </table>
-    </section>
-    <section class="full" id="codePanel" hidden>
-      <h2>交给研发的 HTML</h2>
-      <p class="hint">和图片放在一起时，把 HYYanKaiW.ttf 放在 HTML 同目录。</p>
-      <pre id="code"></pre>
+        <div class="full" id="batchTable" hidden>
+          <table>
+            <thead><tr><th>景点名称</th><th>景点简介</th><th>标题拆分（可修改，黄字用【】）</th></tr></thead>
+            <tbody id="batchBody"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </main>
   <script src="jszip.min.js"></script>
@@ -384,12 +413,14 @@ ${lines}
         if (pngUrl) URL.revokeObjectURL(pngUrl);
         pngUrl = URL.createObjectURL(blob);
         document.querySelector("#preview").src = pngUrl;
-        document.querySelector("#preview").hidden = false;
-        document.querySelector("#placeholder").hidden = true;
+        document.querySelector("#htmlFrame").srcdoc = htmlSource.replace("</head>", "<style>html,body{background-color:#d5d5d5 !important;background-image:linear-gradient(45deg,#c2c2c2 25%,transparent 25%),linear-gradient(-45deg,#c2c2c2 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c2c2c2 75%),linear-gradient(-45deg,transparent 75%,#c2c2c2 75%) !important;background-size:80px 80px !important;background-position:0 0,0 40px,40px -40px,-40px 0 !important;}</style></head>");
+        document.querySelector("#outputs").hidden = false;
         document.querySelector("#code").textContent = htmlSource;
-        document.querySelector("#codePanel").hidden = false;
-        document.querySelector("#downloadPng").hidden = false;
-        document.querySelector("#downloadHtml").hidden = false;
+        const clip = document.querySelector("#frameClip");
+        const frame = document.querySelector("#htmlFrame");
+        const scale = clip.clientWidth / 1920;
+        frame.style.transform = `scale(${scale})`;
+        clip.style.height = `${1080 * scale}px`;
       } catch (err) {
         error.textContent = err.message;
       }
@@ -402,8 +433,17 @@ ${lines}
       setTimeout(() => URL.revokeObjectURL(url), 1500);
     }
 
-    document.querySelector("#downloadPng").addEventListener("click", () => { if (pngUrl) save(pngUrl, "标题.png"); });
+    document.querySelector("#downloadPng").addEventListener("click", () => {
+      if (!pngUrl) return;
+      const link = document.createElement("a");
+      link.href = pngUrl;
+      link.download = "标题.png";
+      link.click();
+    });
     document.querySelector("#downloadHtml").addEventListener("click", () => {
+      if (htmlSource) save(new Blob([htmlSource], { type: "text/html" }), "标题.html");
+    });
+    document.querySelector("#downloadHtmlCode").addEventListener("click", () => {
       if (htmlSource) save(new Blob([htmlSource], { type: "text/html" }), "标题.html");
     });
 
