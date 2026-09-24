@@ -48,6 +48,10 @@
     th { color:var(--muted); }
     .split-edit { display:flex; flex-direction:column; gap:6px; min-width:220px; }
     .split-edit label { font-size:12px; color:var(--muted); }
+    .batch-preview { width:220px; }
+    .batch-preview img { width:220px; height:auto; display:block; border-radius:8px; background:#d5d5d5; }
+    .batch-preview img[hidden] { display:none; }
+    .batch-preview button { margin-top:8px; padding:7px 12px; font-size:13px; }
     pre { margin:12px 0 0; max-height:240px; overflow:auto; padding:12px; background:#0c0c0c; border-radius:10px; font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre; }
     @media (max-width:800px) { .outputs { grid-template-columns:1fr; } }
   </style>
@@ -95,19 +99,19 @@
     </section>
     <section class="panel">
       <h1>2、批量生成</h1>
-      <p class="lead">上传含「景点名称」和「景点简介」的 xlsx。名称是文件名，简介是标题文案。拆分结果可以改，改完再确认生成。</p>
+      <p class="lead">上传含「景点名称」和「景点简介」的 xlsx。名称是文件名，简介是标题文案。每条右侧有预览，改完文案可以重新生成这一条，确认后再下载。</p>
       <div class="batch">
         <label>景点表格
           <input id="xlsx" type="file" accept=".xlsx">
         </label>
         <p class="hint" id="batchSummary"></p>
         <div class="actions">
-          <button class="primary" id="batchDownload" type="button" disabled>确认生成</button>
+          <button class="primary" id="batchDownload" type="button" disabled>确认下载</button>
         </div>
         <p class="error" id="batchError"></p>
         <div class="full" id="batchTable" hidden>
           <table>
-            <thead><tr><th>景点名称</th><th>景点简介</th><th>标题拆分（可修改，黄字用【】）</th></tr></thead>
+            <thead><tr><th>景点名称</th><th>景点简介</th><th>标题拆分（可修改，黄字用【】）</th><th>预览</th></tr></thead>
             <tbody id="batchBody"></tbody>
           </table>
         </div>
@@ -475,6 +479,40 @@ ${lines}
       if (htmlSource) save(new Blob([htmlSource], { type: "text/html" }), "标题.html");
     });
 
+    async function renderRowPreview(row) {
+      const img = row.querySelector("[data-preview]");
+      const button = row.querySelector("[data-action=preview]");
+      const line1 = row.querySelector("[data-field=line1]").value.trim();
+      const line2 = row.querySelector("[data-field=line2]").value.trim();
+      const badge = row.querySelector("[data-field=badge]").value.trim();
+      if (!line1 && !line2) {
+        img.hidden = true;
+        return;
+      }
+      button.disabled = true;
+      button.textContent = "生成中…";
+      try {
+        const blob = await renderPng(line1, line2, badge);
+        if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+        const url = URL.createObjectURL(blob);
+        img.dataset.url = url;
+        img.src = url;
+        img.hidden = false;
+      } finally {
+        button.disabled = false;
+        button.textContent = "重新生成预览";
+      }
+    }
+
+    document.querySelector("#batchBody").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-action=preview]");
+      if (!button) return;
+      const row = button.closest("tr");
+      renderRowPreview(row).catch((err) => {
+        document.querySelector("#batchError").textContent = err.message;
+      });
+    });
+
     document.querySelector("#xlsx").addEventListener("change", async () => {
       const batchError = document.querySelector("#batchError");
       const body = document.querySelector("#batchBody");
@@ -488,11 +526,12 @@ ${lines}
           let line1 = "", line2 = "", badge = "", err = "";
           try { [line1, line2, badge] = structureSentence(row.text); }
           catch (e) { err = e.message; }
-          return `<tr data-name="${escapeHtml(row.name)}"><td>${escapeHtml(row.name)}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</td><td>${escapeHtml(row.text)}</td><td><div class="split-edit"><label>第一行<input data-field="line1" value="${escapeHtml(line1)}"></label><label>第二行<input data-field="line2" value="${escapeHtml(line2)}"></label><label>角标<input data-field="badge" value="${escapeHtml(badge)}"></label></div></td></tr>`;
+          return `<tr data-name="${escapeHtml(row.name)}"><td>${escapeHtml(row.name)}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</td><td>${escapeHtml(row.text)}</td><td><div class="split-edit"><label>第一行<input data-field="line1" value="${escapeHtml(line1)}"></label><label>第二行<input data-field="line2" value="${escapeHtml(line2)}"></label><label>角标<input data-field="badge" value="${escapeHtml(badge)}"></label></div></td><td><div class="batch-preview"><img data-preview alt="标题预览" hidden><button class="ghost" type="button" data-action="preview">重新生成预览</button></div></td></tr>`;
         }).join("");
-        document.querySelector("#batchSummary").textContent = `识别到 ${rows.length} 条。可以修改拆分，再点确认生成。压缩包里每个景点有 PNG 和 HTML，根目录还有全部标题.html。`;
+        document.querySelector("#batchSummary").textContent = `识别到 ${rows.length} 条。右侧正在生成预览。改完文案可以重新生成这一条，再点确认下载。`;
         document.querySelector("#batchTable").hidden = !rows.length;
         document.querySelector("#batchDownload").disabled = !rows.length;
+        for (const row of body.querySelectorAll("tr")) await renderRowPreview(row);
       } catch (err) {
         batchError.textContent = err.message;
       }
@@ -533,7 +572,7 @@ ${lines}
         batchError.textContent = err.message;
       } finally {
         button.disabled = false;
-        button.textContent = "确认生成";
+        button.textContent = "确认下载";
       }
     });
   </script>
