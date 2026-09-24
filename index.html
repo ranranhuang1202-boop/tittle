@@ -15,6 +15,7 @@
     .lead { margin:0 0 16px; }
     .panel { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:22px; }
     .outputs { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px; }
+    .outputs[hidden] { display:none; }
     .outputs article { min-width:0; }
     .card-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
     .code-block { grid-column:1 / -1; }
@@ -58,8 +59,9 @@
     .batch-preview img { width:220px; height:auto; display:block; border-radius:8px; background:#d5d5d5; }
     .batch-preview img[hidden] { display:none; }
     .batch-preview button { margin-top:8px; padding:7px 12px; font-size:13px; }
-    .intro-edit { display:flex; flex-direction:column; gap:8px; min-width:220px; }
-    .intro-edit textarea { min-height:72px; font-weight:400; }
+    .intro-edit { display:flex; flex-direction:column; align-items:flex-start; gap:8px; min-width:220px; }
+    .intro-edit textarea { width:100%; min-height:72px; font-weight:400; }
+    .intro-edit [data-action="confirm-intro"] { padding:5px 10px; font-size:12px; font-weight:600; }
     [data-row-error]:empty { display:none; }
     pre { margin:12px 0 0; max-height:240px; overflow:auto; padding:12px; background:#0c0c0c; border-radius:10px; font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre; }
     @media (max-width:800px) { .outputs { grid-template-columns:1fr; } }
