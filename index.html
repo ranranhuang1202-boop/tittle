@@ -31,6 +31,12 @@
     .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
     .error { min-height:1.4em; margin:0; color:#ff8d7a; }
     .batch { display:flex; flex-direction:column; gap:10px; }
+    .file-pick input[type="file"] { font:inherit; color:var(--muted); }
+    .file-pick input[type="file"]::file-selector-button {
+      margin-right:14px; border:1px solid var(--line); border-radius:999px; padding:12px 22px;
+      font:inherit; font-size:16px; font-weight:700; background:transparent; color:var(--text); cursor:pointer;
+    }
+    #batchDownload { padding:16px 32px; font-size:20px; font-weight:800; }
     .stage {
       background-color:#d5d5d5;
       background-image:linear-gradient(45deg,#c2c2c2 25%,transparent 25%),linear-gradient(-45deg,#c2c2c2 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c2c2c2 75%),linear-gradient(-45deg,transparent 75%,#c2c2c2 75%);
@@ -52,6 +58,9 @@
     .batch-preview img { width:220px; height:auto; display:block; border-radius:8px; background:#d5d5d5; }
     .batch-preview img[hidden] { display:none; }
     .batch-preview button { margin-top:8px; padding:7px 12px; font-size:13px; }
+    .intro-edit { display:flex; flex-direction:column; gap:8px; min-width:220px; }
+    .intro-edit textarea { min-height:72px; font-weight:400; }
+    [data-row-error]:empty { display:none; }
     pre { margin:12px 0 0; max-height:240px; overflow:auto; padding:12px; background:#0c0c0c; border-radius:10px; font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre; }
     @media (max-width:800px) { .outputs { grid-template-columns:1fr; } }
   </style>
@@ -99,9 +108,9 @@
     </section>
     <section class="panel">
       <h1>2、批量生成</h1>
-      <p class="lead">上传含「景点名称」和「景点简介」的 xlsx。名称是文件名，简介是标题文案。每条右侧有预览，改完文案可以重新生成这一条，确认后再下载。</p>
+      <p class="lead">上传含「景点名称」和「景点简介」的 xlsx。名称是文件名，简介是标题文案。简介可以再改，确认后这一条的标题拆分和预览会自动刷新。</p>
       <div class="batch">
-        <label>景点表格
+        <label class="file-pick">景点表格
           <input id="xlsx" type="file" accept=".xlsx">
         </label>
         <p class="hint" id="batchSummary"></p>
@@ -504,11 +513,29 @@ ${lines}
       }
     }
 
+    async function confirmIntro(row) {
+      const error = row.querySelector("[data-row-error]");
+      const text = row.querySelector("[data-field=intro]").value.trim();
+      error.textContent = "";
+      try {
+        const [line1, line2, badge] = structureSentence(text);
+        row.querySelector("[data-field=line1]").value = line1;
+        row.querySelector("[data-field=line2]").value = line2;
+        row.querySelector("[data-field=badge]").value = badge;
+        await renderRowPreview(row);
+      } catch (err) {
+        error.textContent = err.message;
+      }
+    }
+
     document.querySelector("#batchBody").addEventListener("click", (event) => {
-      const button = event.target.closest("[data-action=preview]");
+      const button = event.target.closest("[data-action]");
       if (!button) return;
       const row = button.closest("tr");
-      renderRowPreview(row).catch((err) => {
+      const action = button.dataset.action;
+      const task = action === "confirm-intro" ? confirmIntro(row) : action === "preview" ? renderRowPreview(row) : null;
+      if (!task) return;
+      task.catch((err) => {
         document.querySelector("#batchError").textContent = err.message;
       });
     });
@@ -526,9 +553,9 @@ ${lines}
           let line1 = "", line2 = "", badge = "", err = "";
           try { [line1, line2, badge] = structureSentence(row.text); }
           catch (e) { err = e.message; }
-          return `<tr data-name="${escapeHtml(row.name)}"><td>${escapeHtml(row.name)}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</td><td>${escapeHtml(row.text)}</td><td><div class="split-edit"><label>第一行<input data-field="line1" value="${escapeHtml(line1)}"></label><label>第二行<input data-field="line2" value="${escapeHtml(line2)}"></label><label>角标<input data-field="badge" value="${escapeHtml(badge)}"></label></div></td><td><div class="batch-preview"><img data-preview alt="标题预览" hidden><button class="ghost" type="button" data-action="preview">重新生成预览</button></div></td></tr>`;
+          return `<tr data-name="${escapeHtml(row.name)}"><td>${escapeHtml(row.name)}<div class="error" data-row-error>${escapeHtml(err)}</div></td><td><div class="intro-edit"><textarea data-field="intro">${escapeHtml(row.text)}</textarea><button class="ghost" type="button" data-action="confirm-intro">确认修改</button></div></td><td><div class="split-edit"><label>第一行<input data-field="line1" value="${escapeHtml(line1)}"></label><label>第二行<input data-field="line2" value="${escapeHtml(line2)}"></label><label>角标<input data-field="badge" value="${escapeHtml(badge)}"></label></div></td><td><div class="batch-preview"><img data-preview alt="标题预览" hidden><button class="ghost" type="button" data-action="preview">重新生成预览</button></div></td></tr>`;
         }).join("");
-        document.querySelector("#batchSummary").textContent = `识别到 ${rows.length} 条。右侧正在生成预览。改完文案可以重新生成这一条，再点确认下载。`;
+        document.querySelector("#batchSummary").textContent = `识别到 ${rows.length} 条。右侧正在生成预览。改完简介点确认修改，标题拆分和预览会一起刷新。`;
         document.querySelector("#batchTable").hidden = !rows.length;
         document.querySelector("#batchDownload").disabled = !rows.length;
         for (const row of body.querySelectorAll("tr")) await renderRowPreview(row);
