@@ -213,10 +213,25 @@
     }
 
     function measure(ctx, text, size) {
+      return textInk(ctx, text, size).width;
+    }
+
+    function textInk(ctx, text, size) {
       const tracking = size * -0.16;
-      let width = 0;
-      for (const ch of text) width += ctx.measureText(ch).width + tracking;
-      return Math.max(0, width - tracking);
+      const chars = [...text];
+      const placed = [];
+      let x = 0;
+      chars.forEach((ch, index) => {
+        const metrics = ctx.measureText(ch);
+        const left = metrics.actualBoundingBoxLeft || 0;
+        const right = metrics.actualBoundingBoxRight || metrics.width;
+        placed.push({ ch, x, left, right });
+        x += metrics.width + (index < chars.length - 1 ? tracking : 0);
+      });
+      if (!placed.length) return { placed, inkLeft: 0, width: 0 };
+      const inkLeft = Math.min(...placed.map((glyph) => glyph.x - glyph.left));
+      const inkRight = Math.max(...placed.map((glyph) => glyph.x + glyph.right));
+      return { placed, inkLeft, width: Math.max(1, inkRight - inkLeft) };
     }
 
     function buildHtml(line1, line2, badge, fontUrl) {
@@ -248,8 +263,8 @@
     .case-title__hl { position:relative; color:#fac834; }
     .case-title__hl::after { content:""; position:absolute; left:4%; width:124%; bottom:-0.2em; height:0.11em; background:#fac834; border-radius:999px; box-shadow:0 0 0 0.02em #000; }
     .case-title__foot { position:relative; width:max-content; margin-top:0.46em; margin-left:0.04em; }
-    .case-title__badge { display:inline-flex; align-items:center; justify-content:center; padding:0.16em 0.32em; color:#000; font-size:0.66em; line-height:1; letter-spacing:-0.16em; text-shadow:none; background:#fac834; border:calc(0.04em / 0.66) solid #000; border-radius:0.22em; box-shadow:0 0 0 calc(0.046em / 0.66) #fff; transform:rotate(7deg); }
-    .case-title__badge-text { display:inline-block; }
+    .case-title__badge { display:inline-flex; align-items:center; justify-content:center; padding:0.2em 0.72em; color:#000; font-size:0.66em; line-height:1; letter-spacing:-0.16em; text-shadow:none; background:#fac834; border:calc(0.04em / 0.66) solid #000; border-radius:0.22em; box-shadow:0 0 0 calc(0.046em / 0.66) #fff; transform:rotate(7deg); }
+    .case-title__badge-text { display:inline-block; padding:0 0.12em; }
     .case-title__arrow { position:absolute; width:max(90px,0.58em); height:auto; left:calc(100% - 0.62 * max(90px,0.58em)); top:calc(-0.22 * max(90px,0.58em)); overflow:visible; }
   </style>
 </head>
@@ -326,8 +341,11 @@ ${lines}
         ctx.shadowColor = "transparent";
         const bsize = size * 0.66;
         ctx.font = `${bsize}px ${FONT}`;
-        const bw = measure(ctx, badge, bsize) + bsize * 0.64;
-        const bh = bsize * 1.35;
+        const ink = textInk(ctx, badge, bsize);
+        const padX = bsize * 0.55;
+        const padY = bsize * 0.28;
+        const bw = ink.width + padX * 2;
+        const bh = bsize * 1.05 + padY * 2;
         const bx = left;
         const by = top + blockH + size * 0.2;
         ctx.translate(bx + bw / 2, by + bh / 2);
@@ -340,8 +358,9 @@ ${lines}
         roundRect(ctx, -bw / 2, -bh / 2, bw, bh, 14);
         ctx.fillStyle = "#000";
         ctx.textBaseline = "middle";
-        ctx.textAlign = "center";
-        ctx.fillText(badge, 0, 2);
+        ctx.textAlign = "left";
+        const start = -ink.width / 2 - ink.inkLeft;
+        for (const glyph of ink.placed) ctx.fillText(glyph.ch, start + glyph.x, 2);
         ctx.restore();
       }
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
