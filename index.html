@@ -243,6 +243,7 @@
       const lines = sources.map((source) => `        <p class="case-title__line">${runsHtml(source)}</p>`).join("\n");
       const arrow = badge && sources.some((item) => item.includes("【"));
       const nudge = "-0.08";
+      const footGap = badge ? (0.55 + badge.length * 0.045).toFixed(2) : "0.46";
       const foot = badge ? `
       <div class="case-title__foot">
         <span class="case-title__badge"><span class="case-title__badge-text" style="transform:translateY(${nudge}em)">${escapeHtml(badge)}</span></span>${arrow ? arrowSvg() : ""}
@@ -262,7 +263,7 @@
     .case-title__line + .case-title__line { margin-top:0.16em; }
     .case-title__hl { position:relative; color:#fac834; }
     .case-title__hl::after { content:""; position:absolute; left:4%; width:124%; bottom:-0.2em; height:0.11em; background:#fac834; border-radius:999px; box-shadow:0 0 0 0.02em #000; }
-    .case-title__foot { position:relative; width:max-content; margin-top:0.46em; margin-left:0.04em; }
+    .case-title__foot { position:relative; width:max-content; margin-top:${footGap}em; margin-left:0.04em; }
     .case-title__badge { display:inline-flex; align-items:center; justify-content:center; padding:0.2em 0.72em; color:#000; font-size:0.66em; line-height:1; letter-spacing:-0.16em; text-shadow:none; background:#fac834; border:calc(0.04em / 0.66) solid #000; border-radius:0.22em; box-shadow:0 0 0 calc(0.046em / 0.66) #fff; transform:rotate(7deg); }
     .case-title__badge-text { display:inline-block; padding:0 0.12em; }
     .case-title__arrow { position:absolute; width:max(90px,0.58em); height:auto; left:calc(100% - 0.62 * max(90px,0.58em)); top:calc(-0.22 * max(90px,0.58em)); overflow:visible; }
@@ -313,8 +314,21 @@ ${lines}
       const blockH = lines.length * lineH + (lines.length - 1) * gap;
       const widths = lines.map((line) => measure(ctx, line.replace(/[【】]/g, ""), size));
       const blockW = Math.max(...widths, 1);
+      let badgeBox = null;
+      if (badge) {
+        const bsize = size * 0.66;
+        ctx.font = `${bsize}px ${FONT}`;
+        const ink = textInk(ctx, badge, bsize);
+        const padX = bsize * 0.55;
+        const padY = bsize * 0.28;
+        const bw = ink.width + padX * 2;
+        const bh = bsize * 1.05 + padY * 2;
+        const rise = (bw / 2) * Math.sin(7 * Math.PI / 180) + (blockW / 2) * Math.sin(3 * Math.PI / 180);
+        badgeBox = { bsize, ink, bw, bh, clearance: size * 0.22 + rise };
+      }
+      ctx.font = `${size}px ${FONT}`;
       const left = (1920 - blockW) / 4;
-      const top = (1080 - blockH - (badge ? size * 0.9 : 0)) / 2;
+      const top = (1080 - blockH - (badgeBox ? badgeBox.bh + badgeBox.clearance : 0)) / 2;
       ctx.save();
       ctx.translate(left + blockW / 2, top + blockH / 2);
       ctx.rotate(-3 * Math.PI / 180);
@@ -336,18 +350,13 @@ ${lines}
         }
       });
       ctx.restore();
-      if (badge) {
+      if (badgeBox) {
         ctx.save();
         ctx.shadowColor = "transparent";
-        const bsize = size * 0.66;
+        const { bsize, ink, bw, bh, clearance } = badgeBox;
         ctx.font = `${bsize}px ${FONT}`;
-        const ink = textInk(ctx, badge, bsize);
-        const padX = bsize * 0.55;
-        const padY = bsize * 0.28;
-        const bw = ink.width + padX * 2;
-        const bh = bsize * 1.05 + padY * 2;
         const bx = left;
-        const by = top + blockH + size * 0.2;
+        const by = top + blockH + clearance;
         ctx.translate(bx + bw / 2, by + bh / 2);
         ctx.rotate(7 * Math.PI / 180);
         ctx.fillStyle = "#fff";
